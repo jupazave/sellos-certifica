@@ -100,6 +100,46 @@ Verificación contra certificados reales del SAT (ambos personas morales con RL)
 
 Ambos casos coinciden exactamente con la regla `RFC.length == 12 → " / " + CURP_RL`.
 
+#### De dónde saca la Tarea 8 estos valores (importante)
+
+**No hay que reimplementar el algoritmo de arriba.** Certifica lo necesita porque pide RFC,
+CURP y datos del representante legal en formularios; nuestra app no: recibe el `.cer` de la
+e.firma, **que ya trae los dos atributos ensamblados por la propia CA del SAT**.
+
+> **Instrucción: copiar los valores de `2.5.4.45` y `2.5.4.5` **verbatim** del subject del
+> `.cer` de la e.firma que sube el usuario, sin re-derivarlos ni normalizarlos.**
+
+Es exacto por construcción: el SAT emitió la e.firma con exactamente el mismo par
+`(x500UniqueIdentifier, serialNumber)` que espera en el requerimiento de CSD. Comprobado con
+el fixture del repo `tests/fixtures/fiel.cer`, que ya los trae listos:
+
+```
+x500UniqueIdentifier = PRINTABLESTRING: AAA010101AAA / HEGT7610034S2
+serialNumber         = PRINTABLESTRING:  / HEGT761003MDFRNN09
+```
+
+— idénticos a los del CSD emitido para ese mismo contribuyente (tabla de arriba). Copiar
+verbatim también preserva el espacio inicial de `" / CURP_RL"`, que es fácil de perder al
+`trim()`ear. El algoritmo de §1.2 queda documentado solo para entender **por qué** los
+valores tienen esa forma, y para validar lo que se leyó.
+
+#### Caso borde: la rama `si no` (sin representante legal)
+
+En esa rama `serialNumber = CURP` del titular, lo que solo tiene sentido para **personas
+físicas**; una persona moral no tiene CURP. Dos cosas confirmadas en el código:
+
+- **La RDN nunca se omite.** En `mx/a/a/a/f.java` los `add` del subject son incondicionales
+  (`vector.add(dERSet3); vector.add(dERSet4);`), así que el atributo `2.5.4.5` siempre está.
+  Si el valor viniera vacío se emitiría un **`PrintableString` de longitud 0**, no se
+  eliminaría la RDN.
+- **Certifica exige RL para personas morales**: el validador `Contribuyente.q()`
+  (`mx/sat/gob/b.java`) devuelve `false` si el RFC del titular tiene 13 caracteres y, para
+  los de 12, exige RFC de RL válido de 13 caracteres. O sea, la combinación "persona moral
+  sin RL" no llega a generarse por la UI.
+
+Con la instrucción de copiar verbatim del `.cer`, **este borde no se puede dar**: sea cual
+sea el caso, el valor ya viene resuelto en el certificado.
+
 ### 1.3 `CN` vs `O` — la regla no obvia
 
 El atributo #3 **no siempre es `CN`**. Certifica elige según la longitud del RFC del titular:
@@ -123,22 +163,57 @@ else                 add(X509Name.O);    // 2.5.4.10
 
 ### 1.4 Atributo `challengePassword` (obligatorio)
 
+**Confianza: `confirmado (fuente única)`** — el resto de §1 tiene doble fuente (código +
+certificados reales del SAT); esto **no se puede corroborar contra un certificado emitido**,
+porque los atributos del CSR no se copian al certificado. La derivación de abajo es
+literal del bytecode descompilado, pero descansa solo en esa lectura. Lo separo del
+`confirmado` pleno de §1.1–§1.3 por honestidad, no porque dude de la lectura.
+
 El CSR lleva **un atributo** en el campo `attributes`:
 
 - OID `1.2.840.113549.1.9.7` (`pkcs-9-at-challengePassword`)
 - valor: `SET { PrintableString(...) }`
 
-El valor es un **doble SHA-1 en Base64**. Sea `X` = el string del `x500UniqueIdentifier`
-(sección 1.2) — Certifica pasa el mismo valor como "password" (`a2.c(object2)` con
-`object2 == a2.a()`):
+Código descompilado, `mx/a/a/a/f.java` (base de `CRequerimientoSello`) — helper de digest:
+
+```java
+private static String a(String string, String object) {   // = Base64(SHA1(s1 + s2))
+    string = string + (String)object;
+    object = new SHA1Digest();
+    ((GeneralDigest)object).update(string.getBytes(), 0, string.length());
+    Object object2 = new byte[((SHA1Digest)object).getDigestSize()];
+    ((SHA1Digest)object).doFinal((byte[])object2, 0);
+    return new String(Base64.encode(object2));
+}
+```
+
+y su uso en el mismo archivo (`object2` es el holder `mx/a/a/a/a`):
+
+```java
+if ((object5 = ((a)object2).c()) == null) {
+    ... 21 bytes aleatorios en Base64 ...          // rama muerta en el flujo de CSD
+} else {
+    object5 = f.a(((a)object2).a(), ((a)object2).c());     // interno = B64(SHA1(a + c))
+}
+...
+((DEREncodableVector)object3).add(PKCSObjectIdentifiers.pkcs_9_at_challengePassword);
+((DEREncodableVector)object3).add(
+    new DERSet(new DERPrintableString(f.a(((a)object2).a(), (String)object5))));
+```
+
+La rama `null` **no aplica al CSD**: `PGeneracionLlaves.b()` (`mx/sat/gob/b/f.java`) hace
+`a2.a(object2)` y `a2.c(object2)` con el **mismo** `object2`, de modo que
+`holder.a() == holder.c() ==` el string del `x500UniqueIdentifier`. Llamando `X` a ese valor:
 
 ```
-interno  = Base64( SHA1( X + X ) )
-challengePassword = Base64( SHA1( X + interno ) )
+interno            = Base64( SHA1( X + X ) )
+challengePassword  = Base64( SHA1( X + interno ) )
 ```
 
-`Base64` estándar (alfabeto `+/=`), todos caracteres válidos en `PrintableString`.
-`SHA1` sobre los bytes ASCII del string concatenado.
+`Base64` estándar (alfabeto `+/=`); `+`, `/` y `=` son válidos en `PrintableString`.
+El digest va sobre los bytes ASCII del string concatenado — nótese que Certifica usa
+`string.getBytes()` (charset por defecto) con `string.length()` (número de *chars*): para
+ASCII coinciden, y `X` siempre es ASCII (RFC/CURP/Base64), así que es inocuo aquí.
 
 ### 1.5 Encodificación de la razón social — advertencia
 
@@ -323,6 +398,37 @@ ContentInfo ::= SEQUENCE {
 la codificación **DER del `SET` de `signedAttrs`** (con tag `SET`, no `[0]`), no sobre el
 contenido.
 
+#### Orden de los `signedAttrs` — importa, y no es el orden por OID
+
+`CMSSignedGenerator.getAttributeSet()` hace `new DERSet(attributeTable.toASN1EncodableVector())`,
+y `DERSet(DEREncodableVector)` llama a `sort()`. O sea: **BouncyCastle ordena el `SET` en
+orden canónico DER** antes de firmar y de emitir. `ASN1Set.lessThanOrEqual` compara las
+**codificaciones DER completas byte a byte, incluyendo el tag y el octeto de longitud**
+(y, a igualdad de prefijo, la más corta va primero).
+
+Como el octeto de longitud va en la posición 1 —**antes** de los bytes del OID— es la
+longitud, no el OID, la que domina la comparación. Con SHA-1 (digest de 20 B) y `UTCTime`
+(13 B) las tres codificaciones empiezan así:
+
+| Atributo | OID | Bytes iniciales | Longitud total |
+|---|---|---|---|
+| `contentType` | …1.9.**3** | `30 18 06 09` | 26 B |
+| `signingTime` | …1.9.**5** | `30 1c 06 09` | 30 B |
+| `messageDigest` | …1.9.**4** | `30 23 06 09` | 37 B |
+
+→ El orden canónico DER es **`contentType`, `signingTime`, `messageDigest`**, que es el que
+aparece en el esquema de §3.2. **No** es el orden por OID (`9.3 < 9.4 < 9.5`); confundir
+ambos es fácil porque coinciden en el primer elemento pero no en los otros dos.
+
+Verificado empíricamente reimplementando `ASN1Set.lessThanOrEqual` sobre las codificaciones
+DER que produce forge (script en §7). Consecuencia feliz: **no hay conflicto** entre
+"imitar a Certifica" y "ser canónico en DER" — son el mismo orden, así que un verificador
+que re-codifique canónicamente tampoco tiene de qué quejarse. Por eso esto **no** entra en
+la lista de riesgos residuales.
+
+> Ojo: el orden es consecuencia de las longitudes codificadas. Vale para SHA-1 + `UTCTime`
+> (nuestro caso). Con otro digest o `GeneralizedTime` habría que recalcularlo.
+
 ### 3.3 Contenido del ZIP
 
 - Una entrada por sucursal; cada entrada es el **DER crudo del CSR PKCS#10** (`.req`).
@@ -372,10 +478,12 @@ p7.addSigner({
   key: privateKeyEfirma,
   certificate: certEfirma,
   digestAlgorithm: forge.pki.oids.sha1,               // 1.3.14.3.2.26
+  // ⚠ EL ORDEN DE ESTE ARREGLO ES EL ORDEN EN EL ARCHIVO. Ver §3.2 y "Orden de los
+  // signedAttrs": contentType, signingTime, messageDigest (canónico DER con SHA-1).
   authenticatedAttributes: [
     { type: forge.pki.oids.contentType,   value: forge.pki.oids.data },
+    { type: forge.pki.oids.signingTime },             // forge lo autocompleta
     { type: forge.pki.oids.messageDigest },           // forge lo calcula
-    { type: forge.pki.oids.signingTime,   value: new Date() },
   ],
 });
 p7.sign({ detached: false });                         // contenido ADJUNTO
@@ -384,6 +492,11 @@ const der = forge.asn1.toDer(p7.toAsn1()).getBytes();
 
 **Verificado contra `node_modules/node-forge/lib/pkcs7.js` (v1.4.0):**
 
+- **forge NO ordena el `SET`.** No hay una sola llamada a `.sort(` en `pkcs7.js` ni en
+  `asn1.js`: `sign()` recorre `authenticatedAttributes` y hace `push` en el orden del
+  arreglo, tanto en el `SET` que firma como en el `[0] IMPLICIT` que emite. **El orden que
+  se escriba en el arreglo es literalmente el orden en el `.sdg`**, así que hay que escribirlo
+  ya ordenado (a diferencia de BouncyCastle, que ordena solo).
 - `sign()` (línea ~528) hace `asn1.toDer(attrsAsn1)` sobre un `SET` universal —
   **no** sobre el `[0] IMPLICIT`— y firma ese digest. Es lo que exige CMS y lo mismo que
   hace BouncyCastle, así que la firma es interoperable.
@@ -438,6 +551,10 @@ EncryptedPrivateKeyInfo ::= SEQUENCE {
 - Cifrado: **3DES-EDE-CBC**, padding **PKCS#5/7** (`PaddedBufferedBlockCipher`).
 - Texto plano: el **PKCS#8 `PrivateKeyInfo` DER sin cifrar** de la llave RSA
   (`privateKey.getEncoded()` de Java).
+- **Contraseña → bytes: UTF-8.** Certifica hace `string.getBytes()` (charset por defecto de
+  la JVM) en `mx/a/a/a/d.java`, pero el estándar de facto —y lo que hacen OpenSSL, Node y el
+  resto de la cadena fiscal— es **UTF-8**. Ver §4.5: no explicitarlo produce llaves que nadie
+  más puede abrir.
 
 El `iterationCount` es `2048` porque proviene de `keypair.a()`, que Certifica fija al
 tamaño de llave (`tam_llave_sellos=2048`); es el mismo número, no una coincidencia de
@@ -470,10 +587,30 @@ una mejora segura y no afecta la interoperabilidad.
   `des-EDE3` (`1.3.14.3.2.17` o `1.2.840.113549.3.7`),
   `aes256-CBC` (`2.16.840.1.101.3.4.1.42`) o `RC2` (`1.2.840.113549.3.2`)
 
-La Tarea 7 debe **descifrar** el `.key` de la e.firma soportando al menos PBES1
-`pbeWithMD5AndDES` (histórico, muy común en e.firmas antiguas) y PBES2/PBKDF2+3DES.
-node-forge cubre ambos con `forge.pki.decryptPrivateKeyInfo` /
-`forge.pki.encryptedPrivateKeyFromPem`; verificar el soporte de `pbeWithMD5AndDES`.
+**node-forge NO cubre los dos.** Verificado en `node_modules/node-forge/lib/pbe.js`:
+`pki.pbe.getCipher` (L754) solo despacha tres OID —
+
+```js
+case pki.oids['pkcs5PBES2']:                      // 1.2.840.113549.1.5.13  ✔
+case pki.oids['pbeWithSHAAnd3-KeyTripleDES-CBC']: // 1.2.840.113549.1.12.1.3 ✔
+case pki.oids['pbewithSHAAnd40BitRC2-CBC']:       // 1.2.840.113549.1.12.1.6 ✔
+default: throw new Error('Cannot read encrypted PBE data block. Unsupported OID.');
+```
+
+— así que **PBES1 `pbeWithMD5AndDES` (`1.2.840.113549.1.5.3`) lanza excepción**; lo mismo
+`pbeWithMD2AndDES`. (La versión anterior de este documento afirmaba lo contrario; era falso.)
+
+Consecuencia para la Tarea 7:
+
+- **Camino común, soportado:** las e.firma actuales que entrega el SAT vienen en
+  **PBES2 + PBKDF2 + 3DES**, que forge sí lee vía `forge.pki.decryptPrivateKeyInfo`.
+- **Limitación conocida:** los `.key` **PBES1 heredados** (`pbeWithMD5AndDES`) **no se
+  pueden abrir con forge tal cual**. Hay que detectar ese OID al leer el
+  `EncryptedPrivateKeyInfo` y **fallar con un mensaje claro** ("tu archivo de llave usa un
+  formato antiguo; vuelve a descargar tu e.firma del SAT"), en vez de reventar con un error
+  de ASN.1 incomprensible. Si más adelante hiciera falta soportarlos, PBES1-MD5-DES es
+  trivial de implementar a mano (MD5 iterado sobre `password+salt`, DES-CBC), pero **no
+  asumir que forge lo hace**.
 
 ### 4.4 Traducción a node-forge — **trampa verificada**
 
@@ -492,10 +629,11 @@ node-forge cubre ambos con `forge.pki.decryptPrivateKeyInfo` /
 Es ~25 líneas: replicar la rama PBES2 de forge pero con el OID y tamaños de 3DES.
 
 ```js
+const pwBytes = forge.util.encodeUtf8(password);   // ⚠ OBLIGATORIO — ver §4.5
 const salt = forge.random.getBytesSync(8);
 const iv   = forge.random.getBytesSync(8);
 const count = 2048;
-const dk = forge.pkcs5.pbkdf2(password, salt, count, 24, forge.md.sha1.create()); // 192 bits
+const dk = forge.pkcs5.pbkdf2(pwBytes, salt, count, 24, forge.md.sha1.create()); // 192 bits
 const cipher = forge.des.createEncryptionCipher(dk);   // clave de 24 bytes ⇒ 3DES-EDE
 cipher.start(iv);
 cipher.update(forge.util.createBuffer(forge.asn1.toDer(pkcs8Asn1)));
@@ -518,14 +656,68 @@ byte-a-byte de Certifica en el algoritmo simétrico.
 > usuario (PACs, sistemas de facturación heredados) soporte PBES2+AES. 3DES es el formato
 > que esos sistemas llevan décadas leyendo.
 
-**Verificación obligatoria en la Tarea 7** — el `.key` generado debe abrirse con:
+**Verificación obligatoria en la Tarea 7.** Comandos probados contra un `.key` generado con
+la receta de arriba (LibreSSL del sistema y OpenSSL 3, misma salida en ambos):
 
 ```bash
-openssl pkcs8 -inform DER -in salida.key -passin pass:<contraseña> -nocrypt
+# descifra e imprime el PKCS#8 en PEM  → exit 0
+openssl pkcs8 -inform DER -in salida.key -passin pass:'<contraseña>'
+# o, equivalente y más escueto        → "Key is valid", exit 0
+openssl pkey -inform DER -in salida.key -passin pass:'<contraseña>' -noout -check
 ```
 
-y `openssl asn1parse -inform DER -in salida.key` debe mostrar
-`1.2.840.113549.1.5.13`, `1.2.840.113549.1.5.12`, `:2048` y `1.2.840.113549.3.7`.
+> **No usar `-nocrypt`.** Esa bandera declara que la *entrada* viene sin cifrar, así que
+> falla precisamente cuando el `.key` es correcto:
+> `Error decrypting key … asn1_check_tlen:wrong tag … Field=version, Type=PKCS8_PRIV_KEY_INFO`.
+> (La versión anterior de este documento traía ese comando; era un falso negativo garantizado.)
+
+Y `openssl asn1parse -inform DER -in salida.key` debe rendir así — nótese que OpenSSL
+imprime los OID **por nombre**, y el `iterationCount` en **hexadecimal** (`0x800 = 2048`):
+
+```
+    0:d=0  hl=4 l=1294 cons: SEQUENCE
+    4:d=1  hl=2 l=  64 cons: SEQUENCE
+    6:d=2  hl=2 l=   9 prim: OBJECT            :PBES2
+   17:d=2  hl=2 l=  51 cons: SEQUENCE
+   19:d=3  hl=2 l=  27 cons: SEQUENCE
+   21:d=4  hl=2 l=   9 prim: OBJECT            :PBKDF2
+   32:d=4  hl=2 l=  14 cons: SEQUENCE
+   34:d=5  hl=2 l=   8 prim: OCTET STRING      [HEX DUMP]:D77D3019A9DE6B69
+   44:d=5  hl=2 l=   2 prim: INTEGER           :0800
+   48:d=3  hl=2 l=  20 cons: SEQUENCE
+   50:d=4  hl=2 l=   8 prim: OBJECT            :des-ede3-cbc
+   60:d=4  hl=2 l=   8 prim: OCTET STRING      [HEX DUMP]:EC05CA8953612679
+   70:d=1  hl=4 l=1224 prim: OCTET STRING      [HEX DUMP]:…
+```
+
+Es decir: buscar `:PBES2`, `:PBKDF2`, `INTEGER :0800` y `:des-ede3-cbc` — **no** los OID
+numéricos ni `:2048`.
+
+### 4.5 Codificación de la contraseña: **UTF-8, siempre**
+
+PBKDF2 deriva de **bytes**, no de caracteres, así que el `.key` solo se puede abrir si quien
+lo cifró y quien lo descifra convierten la contraseña a bytes igual. **Hay que usar UTF-8.**
+
+En node-forge esto es una trampa real: las funciones de bajo nivel tratan un `string` de JS
+como **binario/Latin-1** (un byte por code unit), así que una contraseña con `ñ`, `á` o
+cualquier carácter fuera de ASCII produce **bytes distintos** a los que usarán OpenSSL, Node
+o el software del PAC. El resultado es una llave que *parece* correcta y que **nadie más
+puede abrir**, incluida la propia app en otra sesión si ahí se codifica distinto.
+
+```js
+const pwBytes = forge.util.encodeUtf8(password);   // ← siempre, al cifrar Y al descifrar
+```
+
+Comprobado empíricamente (§7) con la contraseña `contrañseña`:
+
+| Vía | Resultado |
+|---|---|
+| Cifrar y descifrar con `forge.util.encodeUtf8(password)` | **OK** (y `openssl pkcs8`/`pkey` la abren) |
+| Cifrar con `encodeUtf8` y descifrar pasando el string JS crudo | **falla** |
+
+Aplica igual al **descifrado** del `.key` de la e.firma (§4.3): pasar `pwBytes`, no el string.
+Para contraseñas ASCII puras —la mayoría— ambas rutas coinciden, y por eso el bug se escapa
+en pruebas y aparece con el primer usuario que use `ñ`.
 
 ---
 
@@ -604,7 +796,8 @@ Caducadas (solo para validar certificados históricos): `AC0`–`AC4`.
 
 | # | Valor | Confianza |
 |---|---|---|
-| 1 | Subject = 4 RDN en orden: `2.5.4.45` (PrintableString), `2.5.4.5` (PrintableString), `CN` **o** `O` según RFC de 13/12 chars (UTF8String), `OU` (UTF8String). Más atributo `challengePassword` = doble SHA-1/Base64. | confirmado |
+| 1 | Subject = 4 RDN en orden: `2.5.4.45` (PrintableString), `2.5.4.5` (PrintableString), `CN` **o** `O` según RFC de 13/12 chars (UTF8String), `OU` (UTF8String). Los dos primeros se **copian verbatim del `.cer` de la e.firma** (§1.2). | confirmado |
+| 1b | Atributo `challengePassword` = `B64(SHA1(X + B64(SHA1(X+X))))`, PrintableString. | confirmado (fuente única — §1.4) |
 | 2 | **SHA-1** en ambos: CSR (`sha1WithRSAEncryption`, `1.2.840.113549.1.1.5`) y SignedData (`sha1`, `1.3.14.3.2.26` + `rsaEncryption`). RSA 2048. | confirmado |
 | 3 | `.sdg` = `ContentInfo(SignedData)` **con contenido adjunto** = **ZIP** de los `.req` DER; firmado con la e.firma, SHA-1, con `signedAttrs` y el cert de la e.firma incluido. **Sin EnvelopedData, sin cifrado.** | confirmado |
 | 4 | `.key` = PKCS#8 `EncryptedPrivateKeyInfo` con **PBES2** (`1.2.840.113549.1.5.13`) + **PBKDF2-HMAC-SHA1** 2048 iteraciones, salt 8 bytes + **des-EDE3-CBC** (`1.2.840.113549.3.7`), IV 8 bytes. | confirmado |
@@ -622,3 +815,39 @@ Caducadas (solo para validar certificados históricos): `AC0`–`AC4`.
    no usa).
 4. **Metadatos del ZIP**: no se replicaron marcas de tiempo/orden de entradas de
    Certifica. Se asume irrelevante.
+
+> El orden de los `signedAttrs` **no** está en esta lista: se comprobó que el orden de
+> Certifica coincide con el canónico DER (§3.2), así que no hay riesgo por ese lado.
+
+---
+
+## 7. Cómo reproducir las verificaciones
+
+Dos afirmaciones de este documento se verificaron ejecutando código, no leyendo. Se pueden
+reproducir con el `node-forge` ya instalado en el repo:
+
+**(A) Orden canónico DER de los `signedAttrs`** (§3.2). Se construyen los tres atributos con
+forge, se codifican a DER y se ordenan reimplementando literalmente
+`org.bouncycastle.asn1.ASN1Set.lessThanOrEqual` (comparación byte a byte de las
+codificaciones completas; a igualdad de prefijo gana la más corta). Salida obtenida:
+
+```
+contentType   (…1.9.3)  len=26  head=30 18 06 09
+messageDigest (…1.9.4)  len=37  head=30 23 06 09
+signingTime   (…1.9.5)  len=30  head=30 1c 06 09
+→ orden canónico: contentType, signingTime, messageDigest
+```
+
+**(B) `.key` PBES2+3DES y contraseña UTF-8** (§4.4, §4.5). Se genera un PKCS#8 en claro con
+`openssl genrsa | openssl pkcs8 -topk8 -nocrypt`, se cifra con la receta de §4.4 usando la
+contraseña no-ASCII `contrañseña`, y se comprueba que:
+
+- `forge.pki.decryptPrivateKeyInfo(..., forge.util.encodeUtf8(password))` → **OK**
+- lo mismo pasando el string JS crudo → **falla**
+- `openssl pkcs8 -inform DER -in salida.key -passin pass:'contrañseña'` → **exit 0**
+- `openssl pkey ... -noout -check` → **"Key is valid"**
+- el mismo comando **con `-nocrypt`** → **falla** (`Error decrypting key`), que es por lo que
+  se corrigió §4.4
+
+Ambos comprobados con LibreSSL (el `openssl` del sistema en macOS) y con OpenSSL 3
+(`brew --prefix openssl@3`), con idéntico resultado.
