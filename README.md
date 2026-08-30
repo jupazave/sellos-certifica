@@ -18,7 +18,7 @@ enteramente en el navegador: sin backend, sin servidor propio y sin dependencias
 
 ## Por qué es segura
 
-- **100% local**: no hay servidor ni backend propio. Todo el criptografía (parseo de
+- **100% local**: no hay servidor ni backend propio. Toda la criptografía (parseo de
   certificados, generación de llaves, cifrado, firma, ensobretado) corre en tu navegador
   con WebCrypto y `node-forge`.
 - **CSP sin red**: el build final trae una `Content-Security-Policy`
