@@ -7,3 +7,17 @@ body {
   max-width: 720px;
   padding: 1rem;
 }
+nav { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+.selector-archivo, .campo-texto { display: block; margin: 0.75rem 0; }
+.selector-archivo span, .campo-texto span { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+.campo-texto input { width: 100%; max-width: 24rem; padding: 0.4rem; }
+button { padding: 0.5rem 1rem; cursor: pointer; }
+.alerta { padding: 0.6rem 0.8rem; border-radius: 6px; margin: 0.5rem 0; }
+.alerta-ok { background: #e6f6e6; color: #14532d; }
+.alerta-aviso { background: #fef9e7; color: #713f12; }
+.alerta-error { background: #fdecea; color: #7f1d1d; }
+@media (prefers-color-scheme: dark) {
+  .alerta-ok { background: #14532d; color: #e6f6e6; }
+  .alerta-aviso { background: #713f12; color: #fef9e7; }
+  .alerta-error { background: #7f1d1d; color: #fdecea; }
+}
