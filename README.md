@@ -124,7 +124,7 @@ anterior (u otro detalle no anticipado) hay que corregir.
 
 ### Qué ya está cubierto sin tu e.firma
 
-La suite de pruebas (`npm test`, 94 pruebas) ejercita el flujo completo de generación
+La suite de pruebas (`npm test`, 102 pruebas) ejercita el flujo completo de generación
 (`ejecutarGeneracion`) con las fixtures públicas del SAT — parseo de e.firma, generación
 de llaves, CSR, cifrado del `.key` y ensobretado del `.sdg` — con los mismos handlers
 reales que usa la UI (vitest + happy-dom, sin mocks de la criptografía). También se
@@ -145,3 +145,20 @@ CertiSAT — los puntos 3 y 4 de la lista de arriba.
 `AAA010101AAA`) más un par sintético generado localmente con OpenSSL. **Nunca hay llaves
 reales de usuarios en este directorio.** Detalle completo, incluida la procedencia y las
 contraseñas de cada fixture, en [`tests/fixtures/README.md`](tests/fixtures/README.md).
+
+## Documentación del proyecto
+
+El proyecto se construyó con un flujo de diseño → plan → ejecución por tareas con
+revisión; los documentos viven en este mismo repo:
+
+- [`docs/superpowers/specs/2026-08-29-sellos-csd-design.md`](docs/superpowers/specs/2026-08-29-sellos-csd-design.md)
+  — el **diseño (spec) aprobado**: propósito, alcance v1, arquitectura de módulos,
+  restricciones de seguridad y criterios de éxito.
+- [`docs/superpowers/plans/2026-08-29-sellos-csd.md`](docs/superpowers/plans/2026-08-29-sellos-csd.md)
+  — el **plan de implementación** (12 tareas TDD paso a paso). Ojo: los snippets de las
+  tareas 7–9 quedaron superados por la investigación del formato real (la Tarea 3
+  descartó el `EnvelopedData`, el SHA-256 y el PBE de PKCS#12 que el plan hipotetizaba);
+  donde el plan y la referencia difieran, manda la referencia.
+- [`docs/reference/sdg-format.md`](docs/reference/sdg-format.md) — la **referencia del
+  formato SAT** (subject del CSR, challengePassword, estructura del `.sdg`, cifrado del
+  `.key`), derivada de descompilar Certifica; es la autoridad técnica del proyecto.
