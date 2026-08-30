@@ -159,6 +159,29 @@ describe('generarCSR', () => {
     expect(() => generarCSR(entrada)).toThrow(ArchivoInvalidoError);
   }, 20_000);
 
+  it('conserva acentos y ñ en razón social/sucursal como UTF-8 (§1.5: Certifica los corrompe, nosotros no)', async () => {
+    const par = await generarParCSD();
+    const entrada = entradaBase(par);
+    entrada.razonSocial = 'PEÑA Y ASOCIADOS, DISEÑO GRÁFICO SA DE CV';
+    entrada.sucursal = 'Sucursal Núñez — Ciudad de México';
+
+    const der = generarCSR(entrada);
+    const csr = forge.pki.certificationRequestFromAsn1(forge.asn1.fromDer(aBinario(der)));
+    expect(csr.verify()).toBe(true);
+
+    // forge no decodifica UTF-8 al parsear de vuelta (RDNAttributesAsArray, x509.js, deja
+    // `.value` como los bytes crudos del contenido ASN.1 — simétrico a que sí lo *codifique*
+    // automáticamente al escribir en `_dnToAsn1` cuando `valueTagClass === UTF8`). Hay que
+    // decodificar aquí para comparar contra el string original; sin esto, el resto de los
+    // tests de este archivo no lo habría detectado porque sus valores son ASCII puro, donde
+    // codificar/decodificar UTF-8 es la identidad.
+    const attrs = csr.subject.attributes;
+    expect(forge.util.decodeUtf8(String(attrs[2]?.value))).toBe(
+      'PEÑA Y ASOCIADOS, DISEÑO GRÁFICO SA DE CV',
+    );
+    expect(forge.util.decodeUtf8(String(attrs[3]?.value))).toBe('Sucursal Núñez — Ciudad de México');
+  }, 20_000);
+
   it('lanza ArchivoInvalidoError si la e.firma no trae x500UniqueIdentifier', async () => {
     const par = await generarParCSD();
     // Ninguna fixture real carece de 2.5.4.45 (siempre está: es el RFC). Se simula
