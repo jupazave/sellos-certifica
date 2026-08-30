@@ -73,6 +73,16 @@ describe('descifrarLlave', () => {
     expect(() => descifrarLlave(new Uint8Array([9, 9]), CONTRASENA)).toThrow(ArchivoInvalidoError);
   });
 
+  it('rechaza un .cer puesto en el campo de la llave como archivo inválido, no como contraseña incorrecta', () => {
+    // csd.cer es DER válido (parsea sin problema como Asn1), pero no tiene la forma de
+    // un EncryptedPrivateKeyInfo. Antes de este fix, forge lanzaba un Error cuyo mensaje
+    // ("...is not a supported EncryptedPrivateKeyInfo.") caía en el catch-all y se
+    // reportaba como ContrasenaIncorrectaError, lo cual es engañoso: el problema es el
+    // archivo, no la contraseña.
+    expect(() => descifrarLlave(csdCer, CONTRASENA)).toThrow(ArchivoInvalidoError);
+    expect(() => descifrarLlave(csdCer, CONTRASENA)).not.toThrow(ContrasenaIncorrectaError);
+  });
+
   it('rechaza una llave con cifrado PBES1 legado con un mensaje claro (no "contraseña incorrecta")', () => {
     const legado = new Uint8Array(Buffer.from(LLAVE_PBES1_LEGADA_B64, 'base64'));
     expect(() => descifrarLlave(legado, 'test1234')).toThrow(ArchivoInvalidoError);

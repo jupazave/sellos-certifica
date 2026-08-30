@@ -77,19 +77,37 @@ export function descifrarLlave(der: Uint8Array, contrasena: string): forge.pki.r
     // identidad; ver docs/reference/sdg-format.md §4.5.
     pki = forge.pki.decryptPrivateKeyInfo(epki, forge.util.encodeUtf8(contrasena));
   } catch (e) {
-    // forge solo reconoce tres OID de cifrado (PBES2, y dos variantes de PBE de
-    // PKCS#12); para cualquier otro —notablemente el PBES1 pbeWithMD5AndDES/
-    // pbeWithMD2AndDES de las e.firma más antiguas del SAT— no devuelve null, sino que
-    // lanza un Error cuyo mensaje contiene "Unsupported OID" (ver
-    // node_modules/node-forge/lib/pbe.js, pki.pbe.getCipher/getCipherForPBES2). Ese
-    // caso es un archivo con un formato que no podemos leer, no una contraseña
-    // incorrecta, así que se distingue aquí para no decirle al usuario que su
-    // contraseña está mal cuando el problema es el formato de la llave.
-    if (e instanceof Error && e.message.includes('Unsupported')) {
-      throw new ArchivoInvalidoError(
-        'Esta llave usa un cifrado antiguo no soportado (PBES1). Vuelve a descargar tu ' +
-          'e.firma o CSD desde el portal del SAT para obtener una llave en el formato actual.',
-      );
+    if (e instanceof Error) {
+      // forge adjunta `.errors` (el arreglo de fallas de forge.asn1.validate) solo
+      // cuando lo que se le pasó no tiene la FORMA de un EncryptedPrivateKeyInfo —p.ej.
+      // si el usuario sube un .cer en el campo de la llave—. Esa validación de forma
+      // ocurre antes de que la contraseña se use para nada, así que es un problema del
+      // archivo, no de la contraseña. Verificado empíricamente (no solo leyendo el
+      // código): 21 combinaciones de contraseña incorrecta × las 3 llaves reales de las
+      // fixtures nunca adjuntan `.errors` ni incluyen "Unsupported" en el mensaje; en
+      // cambio, tanto csd.cer como fiel.cer metidos en el campo de la llave sí adjuntan
+      // `.errors` (ver node_modules/node-forge/lib/pbe.js líneas ~366, ~794, ~881, los
+      // tres únicos lugares donde forge hace `error.errors = errors`).
+      if ('errors' in e) {
+        throw new ArchivoInvalidoError(
+          'El archivo no tiene la forma de una llave privada cifrada del SAT (¿subiste un ' +
+            '.cer en el campo de la llave?).',
+        );
+      }
+      // forge solo reconoce tres OID de cifrado (PBES2, y dos variantes de PBE de
+      // PKCS#12); para cualquier otro —notablemente el PBES1 pbeWithMD5AndDES/
+      // pbeWithMD2AndDES de las e.firma más antiguas del SAT— no devuelve null, sino que
+      // lanza un Error cuyo mensaje contiene "Unsupported OID" (ver
+      // node_modules/node-forge/lib/pbe.js, pki.pbe.getCipher/getCipherForPBES2). Ese
+      // caso también es un archivo con un formato que no podemos leer, no una
+      // contraseña incorrecta, así que se distingue aquí para no decirle al usuario que
+      // su contraseña está mal cuando el problema es el formato de la llave.
+      if (e.message.includes('Unsupported')) {
+        throw new ArchivoInvalidoError(
+          'Esta llave usa un cifrado antiguo no soportado (PBES1). Vuelve a descargar tu ' +
+            'e.firma o CSD desde el portal del SAT para obtener una llave en el formato actual.',
+        );
+      }
     }
     pki = null;
   }
