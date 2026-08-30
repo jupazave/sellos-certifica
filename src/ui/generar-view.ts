@@ -65,6 +65,23 @@ export async function ejecutarGeneracion(entrada: EntradaGeneracion): Promise<{
   keyDer: Uint8Array;
   sdgDer: Uint8Array;
 }> {
+  // Normaliza aquí — único punto de verdad — para que lo que aprueba validarFormulario
+  // coincida exactamente con lo que termina en el CSR y en el nombre del archivo.
+  // validarFormulario valida sobre `f.rfc.trim()`/`f.sucursal.trim()` (para permitir que
+  // el usuario tenga espacios accidentales al capturar), así que si aquí se usara el
+  // valor crudo, un caso que "pasó" la validación podría violar las mismas reglas que
+  // se acaban de validar: una sucursal de 68 caracteres crudos que recorta a 64 se
+  // colaría al atributo OU del CSR sin respetar el límite de §1.7 (ERR_M12), y un RFC
+  // con un espacio inicial (13 caracteres crudos aunque sean 12 significativos) haría
+  // que generarCSR (T8) tomara la rama CN en vez de O, porque `esPersonaFisica` se
+  // decide ahí con `entrada.rfc.length === 13` sobre el valor recibido tal cual (§1.3).
+  // No se recortan `contrasenaEfirma`/`contrasenaCsd`: a diferencia de rfc/razonSocial/
+  // sucursal (datos de captura que el SAT espera "limpios"), una contraseña con espacios
+  // al inicio/fin podría ser intencional y alterarla en silencio sería sorprendente.
+  const rfc = entrada.rfc.trim();
+  const razonSocial = entrada.razonSocial.trim();
+  const sucursal = entrada.sucursal.trim();
+
   const efirma = cargarEfirma(entrada.cer, entrada.key, entrada.contrasenaEfirma);
   const par = await generarParCSD();
   // generarCSR (Tarea 8) exige `certificadoEfirma`: el CSR copia verbatim el
@@ -73,15 +90,15 @@ export async function ejecutarGeneracion(entrada: EntradaGeneracion): Promise<{
   // generarCSR en src/crypto/csr.ts).
   const csrDer = generarCSR({
     ...par,
-    rfc: entrada.rfc,
-    razonSocial: entrada.razonSocial,
-    sucursal: entrada.sucursal,
+    rfc,
+    razonSocial,
+    sucursal,
     contrasenaCsd: entrada.contrasenaCsd,
     certificadoEfirma: efirma.datos.certificado,
   });
   const sdgDer = generarSDG(csrDer, efirma);
   const keyDer = cifrarLlaveCSD(par.privada, entrada.contrasenaCsd);
-  return { nombre: nombreBase(entrada.sucursal, entrada.rfc, new Date()), keyDer, sdgDer };
+  return { nombre: nombreBase(sucursal, rfc, new Date()), keyDer, sdgDer };
 }
 
 export function vistaGenerar(): HTMLElement {
