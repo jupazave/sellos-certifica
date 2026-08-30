@@ -440,6 +440,10 @@ la lista de riesgos residuales.
   y con **espacios convertidos a `_`**. El valor `OU` del CSR conserva el nombre original.
 - `ZipOutputStream` por defecto → método **DEFLATE**, sin contraseña.
 - Formato de fecha: `yyyyMMdd` y `HHmmss` (`com/sun/a/h.a(int, Date)`).
+- El `<RFC>` de este patrón y de los tres de §3.4 es el **RFC plano** del titular
+  (`efirma.datos.rfc`), *no* el compuesto `RFC + " / " + RFC_RL` que sí lleva el
+  `x500UniqueIdentifier` del subject del CSR (§1.2) — implementación en
+  `src/crypto/sdg.ts` (`nombreEntradaReq`, líneas 150-151).
 
 ### 3.4 Nombres de archivo de salida
 
@@ -505,8 +509,12 @@ const der = forge.asn1.toDer(p7.toAsn1()).getBytes();
 - `detached: false` (el default) deja el contenido **adjunto** en `contentInfo`, que es lo
   que necesitamos.
 
-Para el ZIP en el navegador: cualquier librería que produzca un ZIP DEFLATE estándar
-(p. ej. `fflate`) sirve; no se requiere nada especial.
+Para el ZIP en el navegador: la implementación **no** usa una librería de terceros como
+`fflate` — instrucción del controlador de esta tarea, para no sumar una dependencia de
+compresión solo para empaquetar archivos de unos KB (la única dependencia de runtime del
+proyecto es `node-forge`). En su lugar, `src/crypto/zip.ts` escribe a mano un ZIP **método
+STORE** (sin comprimir); es un riesgo residual documentado que CertiSAT acepte STORE igual
+que el DEFLATE que usa Certifica — ver README, sección "Estado del formato `.sdg`".
 
 ---
 

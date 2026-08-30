@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import forge from 'node-forge';
+import { aBytes } from '../src/util/bytes';
 import {
   cargarEfirma,
   descifrarLlave,
@@ -40,6 +42,33 @@ const ESPERADO_RAZON = 'ACCEM SERVICIOS EMPRESARIALES SC';
 const LLAVE_PBES1_LEGADA_B64 =
   'MIICoTAbBgkqhkiG9w0BBQMwDgQIOoxuaXOHPKoCAggABIICgN0Gs0FKF2kbUerE7o+pdfSki0d04FgwZ+US4unbWp1RYDHUH6NRU5Ti8Hd8C6pwSCBEhQ0U8NIYRPRY9fBcKToo1PmOoCRQ47Gc9p9X4deI6A391J2lcjo+7QfEvZfme0buXO+pyZQgIQvfIB8dLi704Y1/80cplKYpN0dFBQgbTh0iYqULDwJyJ8lpR+kRoHd+jYs8H/3K8kDVvwQ34Uiiw6nsGHpHOq/KBeg+3atl/a+Y6nZAhTlPptd28hmoTD3jHd2uVIdKwFc73FVVxf5kjaCS/zcWiNL3rFf40YXQdvmx1swL9kEYXoWDIjdRAG08aqqlhGWsWS2LEv/p/2GDKLGnIcb//dK8F2lCqnZo3Mm9nn5Tj+RbP/9ObeVQU0AC1LbQ6qNvoUtiVW4Ad1Jsop1+FQybxWLKun2Ld6cO1fPHo8ZPmvAlvfrCgDIn36XKrfZ359HP+QhTXIItTpllPBek54CRfsA68dbGIKXgF50EVXkB+rDKyom4x2l4Zs35iGWsBNwXWzhzbEoogD7sU45JEbKMYmUXsmW0lSkahMGWhoF9r9ctkjOUvnvswgkMD/NYhPTJ6o8kK0AAExDhWau2VZoky4u4uYGfWAWJ3huepx8tFwD8rH1NnCAzTZ2fpxlbbxi9k6jVMBkXAGV2K2pujkDb4et/v3zuh+3dlOEpjIwW72bwEHeMdiAEeIVMIaHAeRoiU7RGDrPRrKZGoX03fvuzYu6yeWzfCFhumO5Vec3sg2DHuSWwKGcixD1w/8wkIYb+g895/vz99+rXDRJ47+Z9FqkOAEu0QIq7C8hrZmi4rp0Z07/PLbs8lkW9QRq2Us49j/zNlpwIUAU=';
 
+// `@types/node-forge` tipa `CertificateField.valueTagClass` como `asn1.Class` cuando en
+// realidad es un tag de `asn1.Type` (mismo error de tipos ya documentado en src/crypto/
+// csr.ts y src/crypto/sdg.ts). Se ensancha a `number` para poder pasarlo sin que
+// TypeScript rechace la asignación entre dos enums distintos.
+const TAG_UTF8: number = forge.asn1.Type.UTF8;
+
+// Certificado sintético para la prueba de regresión de mojibake de abajo: reutiliza la
+// llave privada real de fielKey solo para autofirmar un certificado con un CN UTF8String
+// con acentos/ñ. parsearCertificado no valida la firma ni la cadena de CA (solo parsea la
+// estructura DER), así que cualquier DER bien formado sirve — mismo patrón que
+// certificadoConCNHostil en tests/validar-view.test.ts, aquí con valueTagClass UTF8
+// explícito (el default de forge es PrintableString) para reproducir el caso real: un
+// certificado del SAT cuyo CN es un UTF8String con bytes no ASCII.
+function certificadoConCNUtf8(razonSocial: string): Uint8Array {
+  const privada = descifrarLlave(fielKey, CONTRASENA);
+  const cert = forge.pki.createCertificate();
+  cert.publicKey = forge.pki.setRsaPublicKey(privada.n, privada.e);
+  cert.serialNumber = '01';
+  cert.validity.notBefore = new Date(2020, 0, 1);
+  cert.validity.notAfter = new Date(2030, 0, 1);
+  const subject = [{ name: 'commonName', value: razonSocial, valueTagClass: TAG_UTF8 }];
+  cert.setSubject(subject);
+  cert.setIssuer(subject);
+  cert.sign(privada, forge.md.sha256.create());
+  return aBytes(forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes());
+}
+
 describe('parsearCertificado', () => {
   it('extrae RFC, razón social, serie y vigencia de la FIEL', () => {
     const datos = parsearCertificado(fielCer);
@@ -56,6 +85,17 @@ describe('parsearCertificado', () => {
 
   it('rechaza bytes que no son un certificado DER', () => {
     expect(() => parsearCertificado(new Uint8Array([1, 2, 3]))).toThrow(ArchivoInvalidoError);
+  });
+
+  it('decodifica razonSocial cuando el CN es un UTF8String con acentos/ñ (regresión mojibake)', () => {
+    // forge nunca decodifica un UTF8String al parsear un certificado: deja los bytes UTF-8
+    // crudos en `.value`, uno por code unit (Latin-1). Sin decodeUtf8 esto produce mojibake
+    // ("PEÑA" -> "PEÃ‘A") que se muestra tal cual en la vista validar y, al reusarse como
+    // prefill en generar, se re-codifica a UTF-8 y produce un CSR con la razón social
+    // doblemente codificada.
+    const razonOriginal = 'PEÑA Y ASOCIADOS, DISEÑO GRÁFICO SA DE CV';
+    const der = certificadoConCNUtf8(razonOriginal);
+    expect(parsearCertificado(der).razonSocial).toBe(razonOriginal);
   });
 });
 

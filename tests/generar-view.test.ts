@@ -170,6 +170,19 @@ describe('ejecutarGeneracion (flujo completo con fixtures)', () => {
     expect(r.sdgDer.length).toBeGreaterThan(500);
     const llave = descifrarLlave(r.keyDer, 'Secreta123');
     expect(llave.n.bitLength()).toBe(2048);
+
+    // Revisión final: hasta aquí las pruebas comprobaban por separado que el .key
+    // descifra y que el .sdg no está vacío, pero nada comprobaba que ambos archivos
+    // descargados sean en realidad la MISMA pareja de llaves — es decir, que la llave
+    // pública que quedó firmada dentro del CSR embebido en el .sdg corresponda a la llave
+    // privada que el usuario puede descifrar del .key con su contraseña nueva. Si
+    // ejecutarGeneracion alguna vez generara o mezclara dos pares distintos (p. ej. un
+    // futuro refactor que llamara a generarParCSD() dos veces), el .key y el .sdg
+    // seguirían pasando las aserciones de arriba —cada uno por separado sigue siendo
+    // válido— pero el CSD resultante sería inservible: el .key no correspondería al
+    // certificado que el SAT emita a partir de ese CSR.
+    const csr = csrDelSdg(r.sdgDer);
+    expect((csr.publicKey as forge.pki.rsa.PublicKey).n.compareTo(llave.n)).toBe(0);
   }, 60_000);
 
   // Regresión: revisión de la Tarea 11 encontró que validarFormulario valida sobre

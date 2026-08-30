@@ -29,6 +29,12 @@ const OID_RFC = '2.5.4.45'; // x500UniqueIdentifier
 
 const DIAS_POR_VENCER = 90;
 
+// `@types/node-forge` tipa `CertificateField.valueTagClass` como `asn1.Class` cuando en
+// realidad es un tag de `asn1.Type` (mismo error de tipos ya documentado y verificado en
+// tiempo de ejecución en src/crypto/csr.ts y src/crypto/sdg.ts). Se ensancha a `number`
+// para poder comparar sin que TypeScript rechace la comparación entre dos enums distintos.
+const TAG_UTF8: number = forge.asn1.Type.UTF8;
+
 export function parsearCertificado(der: Uint8Array): DatosCertificado {
   let cert: forge.pki.Certificate;
   try {
@@ -40,7 +46,24 @@ export function parsearCertificado(der: Uint8Array): DatosCertificado {
   const attrs = cert.subject.attributes;
   const rfcCrudo = String(attrs.find((a) => a.type === OID_RFC)?.value ?? '');
   const rfc = rfcCrudo.split('/')[0]?.trim().toUpperCase() ?? '';
-  const razonSocial = String(attrs.find((a) => a.shortName === 'CN')?.value ?? '');
+  // El CN del subject de un certificado real del SAT es un UTF8String (§1.1 de
+  // docs/reference/sdg-format.md aplica al CSR, pero el certificado *emitido* también usa
+  // UTF8String para el nombre — confirmado contra las fixtures reales). forge nunca
+  // decodifica UTF8String al parsear (deja los bytes UTF-8 crudos en `.value`, uno por code
+  // unit / Latin-1 — mismo comportamiento documentado en csr.ts y sdg.ts), así que sin este
+  // paso una razón social con acentos/ñ llega como mojibake ("PEÑA" -> "PEÃ‘A") a esta vista
+  // y, peor, al reusarse como prefill en generar-view se re-codifica a UTF-8 sobre bytes ya
+  // corruptos, doblemente codificando el CN/O del CSR resultante.
+  const attrCN = attrs.find((a) => a.shortName === 'CN');
+  let razonSocial = typeof attrCN?.value === 'string' ? attrCN.value : '';
+  if (attrCN?.valueTagClass === TAG_UTF8) {
+    try {
+      razonSocial = forge.util.decodeUtf8(razonSocial);
+    } catch {
+      // Bytes malformados (no UTF-8 válido): se deja crudo en vez de reventar el parseo
+      // completo del certificado por un campo de solo-display.
+    }
+  }
   // Heurística SAT (confirmada contra las fixtures de la Tarea 2, ver
   // tests/fixtures/README.md "Heuristica de OU"): los CSD llevan el nombre de la
   // sucursal en el atributo OU del subject; la e.firma (FIEL) nunca trae OU.
