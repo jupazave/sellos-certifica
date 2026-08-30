@@ -49,10 +49,11 @@ const TAG_UTF8: number = forge.asn1.Type.UTF8;
  * ASCII (nuestra propia fixture de e.firma real la tiene: "Administración", "Coyoacán").
  *
  * La certificateToAsn1 del propio forge NO sufre este bug porque reutiliza el
- * `tbsCertificate` cacheado del parseo original ("prefer cached TBSCertificate", x509.js) en
- * vez de reconstruirlo — por eso el certificado embebido sale bien pero el `issuer` del
- * SignerInfo (reconstruido aparte, sin ese cache) sale mal. Verificado empíricamente: sin
- * este workaround, `openssl cms -verify` falla con "signer certificate not found" porque
+ * `tbsCertificate` cacheado del parseo original ("prefer cached TBSCertificate over
+ * generating one", x509.js línea 2537) en vez de reconstruirlo — por eso el certificado
+ * embebido sale bien pero el `issuer` del SignerInfo (reconstruido aparte, sin ese cache)
+ * sale mal. Verificado empíricamente: sin este workaround, `openssl cms -verify` falla con
+ * "signer certificate not found" porque
  * el `issuer` del SignerInfo ya no coincide byte a byte con el `issuer` real del
  * certificado embebido — un verificador CMS no puede emparejarlos. Con el workaround,
  * `openssl cms -verify` pasa (ver tests/sdg.test.ts).
@@ -126,7 +127,8 @@ function conCeros(n: number, ancho = 2): string {
  * Extrae la sucursal (atributo OU) del subject del CSR ya construido — es la única fuente
  * disponible dentro de esta función, ya que `generarSDG` no recibe la sucursal por
  * separado (contrato fijo de la Tarea 11: `generarSDG(csrDer, efirma)`). `generarCSR`
- * (Tarea 8) siempre agrega esta RDN (§1.1: 4 RDN, ninguna opcional), así que en el flujo
+ * (Tarea 8) siempre agrega esta RDN — §1.1 la cuenta entre las 4 RDN del subject y §1.2
+ * confirma que ninguna se omite nunca ("La RDN nunca se omite") — así que en el flujo
  * normal de la app este atributo siempre está presente.
  */
 function sucursalDelCSR(csr: forge.pki.CertificateSigningRequest): string {

@@ -94,9 +94,10 @@ const FLAG_UTF8 = 0x0800;
 /**
  * Arma un archivo ZIP con las `entradas` dadas, sin comprimir (STORE). Pensado para el
  * único uso que necesita este proyecto: empaquetar el/los `.req` (CSR DER) dentro del
- * `.sdg` — ver docs/reference/sdg-format.md §3.1/§3.3 ("ZipOutputStream... comprime el
- * HashMap"; aquí no se replica DEFLATE porque no aporta nada para archivos de este tamaño
- * y el formato no lo exige, solo exige que sea un ZIP válido).
+ * `.sdg` — docs/reference/sdg-format.md §3.1 documenta que Certifica arma este ZIP con
+ * `java.util.zip.ZipOutputStream` (que comprime con DEFLATE por defecto, según §3.3);
+ * aquí no se replica DEFLATE porque no aporta nada para archivos de este tamaño y el
+ * formato no lo exige, solo exige que sea un ZIP válido.
  */
 export function crearZip(entradas: EntradaZip[]): Uint8Array {
   const cuerposLocales: Uint8Array[] = [];

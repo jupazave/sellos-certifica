@@ -98,7 +98,11 @@ function extraerPrimeraEntradaDeZip(zip: Uint8Array): { nombre: string; datos: U
 function candidatosOpenssl(): string[] {
   const candidatos: string[] = [];
   try {
-    // docs/reference/sdg-format.md T3: "LibreSSL may lack cms — use $(brew --prefix openssl@3)".
+    // Algunas builds de LibreSSL no traen el subcomando `cms` (no es algo que documente
+    // sdg-format.md — es una precaución de esta prueba). Se prueba primero el openssl@3 de
+    // Homebrew si está instalado (más probable que tenga `cms`) y se sondea de verdad con
+    // soportaCms() más abajo en vez de asumir; si ninguno lo soporta, el describe.skipIf
+    // salta este bloque en vez de fallar.
     const prefijo = execFileSync('brew', ['--prefix', 'openssl@3']).toString().trim();
     if (prefijo) candidatos.push(join(prefijo, 'bin', 'openssl'));
   } catch {
@@ -319,9 +323,11 @@ describe.skipIf(!OPENSSL_CMS)('generarSDG — cross-check con `openssl cms -veri
       try {
         // -noverify: no se valida la cadena de confianza (no traemos la CA del SAT como
         // trust anchor local) — sí se valida la firma RSA sobre signedAttrs y que
-        // messageDigest coincida con el eContent adjunto. Ver docs/reference/sdg-format.md
-        // §3.7 y la nota del controlador: T3's reviewer confirmó que esto funciona sobre
-        // un SignedData construido según §3.7.
+        // messageDigest coincida con el eContent adjunto. sdg-format.md §3.7 no menciona
+        // openssl (es la guía de traducción a node-forge); que `openssl cms -verify` sea el
+        // comando correcto para este cross-check viene de las instrucciones de la tarea, no
+        // del documento — confirmado aquí ejecutándolo de verdad contra un SignedData
+        // construido siguiendo §3.7 (ver el resultado más abajo).
         execFileSync(OPENSSL_CMS as string, [
           'cms',
           '-verify',
