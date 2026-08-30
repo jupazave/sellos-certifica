@@ -49,6 +49,9 @@ function inyectarCsp(): Plugin {
 
 export default defineConfig({
   plugins: [viteSingleFile(), inyectarCsp()],
+  // El harness de desarrollo asigna un puerto libre vía la variable PORT (autoPort);
+  // sin ella, Vite usa su default (5173).
+  server: { port: Number(process.env.PORT) || undefined },
   build: { target: 'es2022' },
   test: {
     environment: 'node',
