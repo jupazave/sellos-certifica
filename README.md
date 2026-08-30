@@ -64,6 +64,16 @@ open dist/index.html   # o doble clic desde el explorador de archivos
 y no requiere servidor. Si prefieres servirlo localmente en vez de abrirlo con `file://`,
 `npm run preview` levanta un servidor estático sobre `dist/`.
 
+### Versión hospedada (GitHub Pages)
+
+La misma app está publicada en **<https://jupazave.github.io/sellos-certifica/>**. Se
+regenera sola con cada push a `main` vía GitHub Actions
+([`.github/workflows/pages.yml`](.github/workflows/pages.yml)), con la suite de pruebas
+como requisito del despliegue. Es exactamente el mismo `dist/index.html`: la CSP que
+bloquea toda conexión saliente viaja dentro del HTML, así que ahí tampoco tus archivos o
+contraseñas salen del navegador. Para la garantía máxima (no confiar ni en el hosting),
+haz el build local como se describe arriba.
+
 ## Desarrollo
 
 ```bash
