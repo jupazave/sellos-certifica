@@ -3,9 +3,7 @@ export async function leerArchivo(archivo: File): Promise<Uint8Array> {
 }
 
 export function descargarArchivo(nombre: string, bytes: Uint8Array): void {
-  // slice() copia la vista a un ArrayBuffer propio: BlobPart exige
-  // ArrayBufferView<ArrayBuffer> y Uint8Array admite SharedArrayBuffer.
-  const url = URL.createObjectURL(new Blob([bytes.slice()], { type: 'application/octet-stream' }));
+  const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/octet-stream' }));
   const a = document.createElement('a');
   a.href = url;
   a.download = nombre;

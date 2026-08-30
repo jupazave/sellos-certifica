@@ -23,5 +23,8 @@ function inyectarCsp(): Plugin {
 export default defineConfig({
   plugins: [viteSingleFile(), inyectarCsp()],
   build: { target: 'es2022' },
-  test: { environment: 'node' },
+  test: {
+    environment: 'node',
+    exclude: ['**/node_modules/**', '**/dist/**', '.claude/**', '.superpowers/**'],
+  },
 });
