@@ -278,7 +278,10 @@ describe('ejecutarGeneracion (flujo completo con fixtures)', () => {
 describe('vistaGenerar (DOM)', () => {
   it('renderiza selectores de e.firma y campos del formulario', () => {
     const vista = vistaGenerar();
-    expect(vista.querySelectorAll('input[type="file"]').length).toBe(2);
+    const archivos = vista.querySelectorAll<HTMLInputElement>('input[type="file"]');
+    expect(archivos.length).toBe(2);
+    expect(archivos[0]?.accept).toBe('.cer');
+    expect(archivos[1]?.accept).toBe('.key');
     expect(vista.querySelectorAll('input[type="password"]').length).toBe(3); // e.firma + CSD + confirmación
     expect(vista.querySelector('button')).not.toBeNull();
   });

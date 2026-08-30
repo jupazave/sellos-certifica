@@ -186,8 +186,8 @@ export function vistaGenerar(): HTMLElement {
   });
 
   raiz.append(
-    selectorArchivo('Certificado de tu e.firma (.cer)', (bytes) => { cer = bytes; precargarDesdeCer(); }),
-    selectorArchivo('Llave privada de tu e.firma (.key)', (bytes) => { key = bytes; }),
+    selectorArchivo('Certificado de tu e.firma (.cer)', (bytes) => { cer = bytes; precargarDesdeCer(); }, '.cer'),
+    selectorArchivo('Llave privada de tu e.firma (.key)', (bytes) => { key = bytes; }, '.key'),
     contrasenaEfirma.raiz,
     avisos,
     rfc.raiz,

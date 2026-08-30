@@ -59,7 +59,10 @@ describe('validar (lógica pura)', () => {
 describe('vistaValidar (DOM)', () => {
   it('renderiza los dos selectores de archivo y el campo de contraseña', () => {
     const vista = vistaValidar();
-    expect(vista.querySelectorAll('input[type="file"]').length).toBe(2);
+    const archivos = vista.querySelectorAll<HTMLInputElement>('input[type="file"]');
+    expect(archivos.length).toBe(2);
+    expect(archivos[0]?.accept).toBe('.cer');
+    expect(archivos[1]?.accept).toBe('.key');
     expect(vista.querySelector('input[type="password"]')).not.toBeNull();
   });
 

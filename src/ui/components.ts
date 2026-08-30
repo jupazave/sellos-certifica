@@ -1,6 +1,7 @@
 export function selectorArchivo(
   etiqueta: string,
   onBytes: (bytes: Uint8Array, nombre: string) => void,
+  accept?: string,
 ): HTMLElement {
   const raiz = document.createElement('label');
   raiz.className = 'selector-archivo';
@@ -8,12 +9,22 @@ export function selectorArchivo(
   texto.textContent = etiqueta;
   const input = document.createElement('input');
   input.type = 'file';
+  if (accept) input.accept = accept;
+  const aviso = document.createElement('div');
   input.addEventListener('change', async () => {
     const archivo = input.files?.[0];
     if (!archivo) return;
+    aviso.replaceChildren();
+    // El atributo accept filtra el diálogo nativo, pero el sistema permite elegir
+    // "Todos los archivos": la extensión se valida también aquí.
+    if (accept && !archivo.name.toLowerCase().endsWith(accept.toLowerCase())) {
+      aviso.append(alerta('error', `El archivo debe tener extensión ${accept}`));
+      input.value = '';
+      return;
+    }
     onBytes(new Uint8Array(await archivo.arrayBuffer()), archivo.name);
   });
-  raiz.append(texto, input);
+  raiz.append(texto, input, aviso);
   return raiz;
 }
 

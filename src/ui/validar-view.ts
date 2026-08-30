@@ -111,8 +111,8 @@ export function vistaValidar(): HTMLElement {
   }
 
   raiz.append(
-    selectorArchivo('Certificado (.cer)', (bytes) => { cer = bytes; pintar(); }),
-    selectorArchivo('Llave privada (.key)', (bytes) => { key = bytes; pintar(); }),
+    selectorArchivo('Certificado (.cer)', (bytes) => { cer = bytes; pintar(); }, '.cer'),
+    selectorArchivo('Llave privada (.key)', (bytes) => { key = bytes; pintar(); }, '.key'),
     contrasena.raiz,
   );
   contrasena.input.addEventListener('input', () => { if (key) pintar(); });
